@@ -1,7 +1,7 @@
 [project]
 name = "annuaire"
 version = "0.1.0"
-description = "Add your description here"
+description = "Récupère, nettoie et analyse l'annuaire des établissements scolaires de l'Éducation nationale."
 readme = "README.md"
 authors = [
     { name = "Imane MOHAMMED SEGHIR", email = "126501086+IMANEMS@users.noreply.github.com" }
@@ -13,7 +13,7 @@ dependencies = [
 ]
 
 [project.scripts]
-annuaire = "annuaire:main"
+annuaire-ingest = "annuaire.__main__:main"
 
 [build-system]
 requires = ["uv_build>=0.12.17,<0.13.0"]
@@ -25,3 +25,16 @@ dev = [
     "ruff>=0.16.8",
     "types-requests>=2.33.0.20260906",
 ]
+
+[tool.ruff]
+line-length = 88
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+
+[tool.mypy]
+strict = true
+
+[[tool.mypy.overrides]]
+module = ["pandas.*"]
+ignore_missing_imports = true
