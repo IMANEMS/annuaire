@@ -9,8 +9,8 @@ d'établissements par département, la part public/privé et les ouvertures par 
 Prérequis : Python 3.12+ et [uv](https://docs.astral.sh/uv/).
 
 ```bash
-git clone <URL_DU_DEPOT> annuaire
-cd annuaire
+   git clone https://github.com/IMANEMS/annuaire.git
+   cd annuaire
 uv sync
 ```
 
