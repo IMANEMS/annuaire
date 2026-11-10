@@ -1,4 +1,4 @@
-"""Interface en ligne de commande pour l'analyse multi-source."""
+"""Interface en ligne de commande : analyser, et (TP 5) sauvegarder toute l'API."""
 
 import argparse
 from collections.abc import Sequence
@@ -6,18 +6,28 @@ from typing import Literal
 
 import pandas as pd
 
-from annuaire.analyse import ResultatAnalyse, analyser
+from annuaire.analyse import ResultatAnalyse, ResultatCle, analyser, analyser_cle
 from annuaire.config import (
+    DOSSIER_BRUT,
     FICHIER_CSV,
     FICHIER_EXPORT,
     FICHIER_PARQUET,
     NB_ANNEES_AFFICHEES,
     NB_DEPARTEMENTS_AFFICHES,
     NB_ENREGISTREMENTS_MAX,
+    TAILLE_PAGE,
 )
-from annuaire.lecture import Lecteur, LecteurApi, LecteurCsv, LecteurParquet
+from annuaire.ingestion import Api, sauvegarder_tout, trouver_mur
+from annuaire.lecture import (
+    Lecteur,
+    LecteurApi,
+    LecteurCsv,
+    LecteurParquet,
+    LecteurPartitions,
+    charger_partitions,
+)
 
-Source = Literal["csv", "parquet", "api"]
+Source = Literal["csv", "parquet", "api", "partitions"]
 
 
 def construire_lecteur(source: Source, nombre: int) -> Lecteur:
@@ -26,6 +36,8 @@ def construire_lecteur(source: Source, nombre: int) -> Lecteur:
         return LecteurCsv(FICHIER_CSV)
     if source == "parquet":
         return LecteurParquet(FICHIER_PARQUET)
+    if source == "partitions":
+        return LecteurPartitions(DOSSIER_BRUT)
     return LecteurApi(nombre)
 
 
@@ -34,9 +46,9 @@ def lire_arguments(arguments: Sequence[str] | None = None) -> argparse.Namespace
     parser = argparse.ArgumentParser(description="Analyse de l'annuaire scolaire.")
     parser.add_argument(
         "--source",
-        choices=("csv", "parquet", "api"),
+        choices=("csv", "parquet", "api", "partitions"),
         default="api",
-        help="source des données (défaut : api)",
+        help="source des données à analyser (défaut : api)",
     )
     parser.add_argument(
         "-n",
@@ -44,6 +56,22 @@ def lire_arguments(arguments: Sequence[str] | None = None) -> argparse.Namespace
         type=int,
         default=NB_ENREGISTREMENTS_MAX,
         help="nombre maximal d'enregistrements à récupérer depuis l'API",
+    )
+    action = parser.add_mutually_exclusive_group()
+    action.add_argument(
+        "--mur",
+        action="store_true",
+        help="TP 5 · étape 1 : mesurer le plafond offset + limit de l'API",
+    )
+    action.add_argument(
+        "--sauvegarder",
+        action="store_true",
+        help=f"TP 5 · étapes 2 à 4 : sauvegarder toute l'API dans {DOSSIER_BRUT}/",
+    )
+    action.add_argument(
+        "--cle",
+        action="store_true",
+        help="TP 5 · étape 5 : comparer lignes et identifiants distincts",
     )
     options = parser.parse_args(arguments)
     if options.nombre <= 0:
@@ -86,9 +114,63 @@ def afficher_resultat(resultat: ResultatAnalyse) -> None:
         print("\nAucun enregistrement rejeté")
 
 
+def afficher_cle(resultat: ResultatCle) -> None:
+    """Affiche l'enquête sur les doublons d'identifiant (TP 5 · étape 5)."""
+    print(f"lignes                  : {resultat.lignes}")
+    print(f"identifiants distincts  : {resultat.identifiants_distincts}")
+    print(
+        f"identifiants en double  : {resultat.identifiants_en_double} "
+        f"({resultat.lignes_en_double} lignes)"
+    )
+    if not resultat.identifiants_en_double:
+        return
+    print(
+        "doublons dans un même fichier de partition : "
+        f"{resultat.doublons_meme_partition} / {resultat.identifiants_en_double}"
+    )
+    print(
+        "doublons strictement identiques (toutes colonnes) : "
+        f"{resultat.doublons_identiques} / {resultat.identifiants_en_double}"
+    )
+    if resultat.multi_uai_doublons is not None:
+        print(f"\nmulti_uai, lignes en double :\n{resultat.multi_uai_doublons}")
+        print(f"\nmulti_uai, toutes les lignes :\n{resultat.multi_uai_tout}")
+    print(f"\ncolonnes qui diffèrent entre copies :\n{resultat.colonnes_differentes}")
+    print(f"\nexemple :\n{resultat.exemple}")
+
+
+def executer_tp5(options: argparse.Namespace) -> None:
+    """Les trois actions du TP 5."""
+    if options.cle:
+        afficher_cle(analyser_cle(charger_partitions(DOSSIER_BRUT)))
+        return
+    api = Api.ouvrir()
+    try:
+        if options.mur:
+            for limite in (1, TAILLE_PAGE):
+                offset = trouver_mur(api, limite)
+                print(
+                    f"limit={limite:>3} : plus grand offset accepté = {offset} "
+                    f"(offset + limit = {offset + limite})"
+                )
+        else:
+            bilan = sauvegarder_tout(api, DOSSIER_BRUT)
+            print(
+                f"\n{bilan.ecrites} partitions écrites, {bilan.sautees} sautées · "
+                f"{bilan.lignes_sur_disque} lignes sur disque = "
+                f"{bilan.total_api} attendues ✅"
+            )
+    finally:
+        api.fermer()
+
+
 def main(arguments: Sequence[str] | None = None) -> None:
-    """Lance l'analyse avec la source choisie et exporte les établissements ouverts."""
+    """Lance l'action demandée : par défaut, l'analyse et l'export des ouverts."""
     options = lire_arguments(arguments)
+    if options.mur or options.sauvegarder or options.cle:
+        executer_tp5(options)
+        return
+
     lecteur = construire_lecteur(options.source, options.nombre)
     resultat = analyser(lecteur)
     afficher_resultat(resultat)

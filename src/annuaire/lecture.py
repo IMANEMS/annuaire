@@ -5,6 +5,7 @@ from collections.abc import Iterator
 from pathlib import Path
 from typing import Any, Protocol
 
+import pandas as pd
 import pyarrow.parquet as pq
 import requests
 
@@ -64,3 +65,26 @@ class LecteurApi:
             if not resultats:
                 return
             yield from resultats
+
+
+class LecteurPartitions:
+    """TP 5 : relit toutes les partitions `dep=*.parquet` sauvegardées."""
+
+    def __init__(self, dossier: Path) -> None:
+        self.dossier = dossier
+
+    def lire(self) -> Iterator[dict[str, Any]]:
+        for fichier in sorted(self.dossier.glob("dep=*.parquet")):
+            yield from LecteurParquet(fichier).lire()
+
+
+def charger_partitions(dossier: Path) -> pd.DataFrame:
+    """Toutes les partitions dans un DataFrame, avec le fichier d'origine."""
+    morceaux = []
+    for fichier in sorted(dossier.glob("dep=*.parquet")):
+        morceau = pd.read_parquet(fichier)
+        morceau["_fichier"] = fichier.name
+        morceaux.append(morceau)
+    if not morceaux:
+        raise FileNotFoundError(f"aucune partition dans {dossier}/")
+    return pd.concat(morceaux, ignore_index=True)

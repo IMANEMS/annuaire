@@ -42,3 +42,17 @@ FICHIER_PARQUET: Path = Path("donnees/etablissements.parquet")
 # TP 3 : sans tri, deux appels à l'API ne renvoient pas les mêmes enregistrements.
 TRI_API: str = "identifiant_de_l_etablissement"
 DOSSIER_DONNEES: Path = Path("donnees")
+
+
+# TP 5 : lire les 68 563 établissements malgré le plafond de l'API.
+PLAFOND_API: int = 10_000  # l'API refuse offset + limit > 10 000
+DEBIT_PAR_SECONDE: float = 5.0
+TENTATIVES: int = 5
+ATTENTE_INITIALE: float = 0.5  # puis 1 s, 2 s, 4 s...
+FACTEUR_ATTENTE: float = 2.0
+ATTENTE_MAX: float = 30.0
+# Pannes passagères : on réessaie. 400, 404... décrivent la requête : non.
+CODES_REESSAYABLES: frozenset[int] = frozenset({408, 425, 429, 500, 502, 503, 504})
+COLONNE_PARTITION: str = "code_departement"
+COLONNE_IDENTIFIANT: str = "identifiant_de_l_etablissement"
+DOSSIER_BRUT: Path = Path("donnees/brut")

@@ -140,3 +140,77 @@ catégories, et 29,26 MiB pour le dossier partitionné.
 Jeu *Annuaire de l'éducation* (`fr-en-annuaire-education`), ministère de l'Éducation
 nationale, https://data.education.gouv.fr — 3 000 enregistrements par défaut,
 récupérés par pages de 100.
+
+## TP5 — Tout ingérer, malgré l'API
+
+```bash
+uv run python -m annuaire --mur             # étape 1 : mesurer le plafond
+uv run python -m annuaire --sauvegarder     # étapes 2 à 4 : tout sauvegarder
+uv run python -m annuaire --cle             # étape 5 : la question de la clé
+uv run python -m annuaire --source partitions   # analyser les 68 563
+```
+
+### Étape 1 — Le mur
+
+L'API refuse dès que **`offset + limit > 10 000`**. La contrainte porte sur la somme,
+pas sur l'offset seul :
+
+| limit | plus grand offset accepté | offset + limit |
+|---:|---:|---:|
+| 1 | 9 999 | 10 000 |
+| 100 | 9 900 | 10 000 |
+
+`offset=9950&limit=100` échoue déjà. Une pagination à plat ne lit donc que les 10 000
+premiers enregistrements.
+
+### Étapes 2 à 4 — Partitionner, réessayer, reprendre
+
+- **Partitions** : une par `code_departement` (aucune ne dépasse 10 000). La liste des
+  partitions est elle-même paginée et lue jusqu'au bout.
+- **Garde-fou** : la somme des effectifs des partitions est comparée au `total_count`
+  de l'API ; si elle diffère, l'ingestion s'arrête (`IngestionIncomplete`). Même
+  contrôle à la fin sur les lignes écrites.
+- **Réessai** : `@reessayer()` (`src/annuaire/ingestion.py`, réglages dans `config.py`) — attente qui double
+  (0,5 · 1 · 2 · 4 s), multipliée par un tirage dans [0,5 ; 1,5], `Retry-After` écouté,
+  seuls 408/425/429/500/502/503/504 sont réessayés ; 400 et 404 remontent aussitôt.
+- **Débit** : `Debit(5)` impose 0,2 s minimum entre deux appels.
+- **Reprise** : un fichier `donnees/brut/dep=XXX.parquet` par partition, écrit dans
+  `.partiel` puis renommé ; les partitions déjà présentes sont sautées.
+
+### Résultat de l'ingestion
+
+107 partitions (départements) sauvegardées dans `donnees/brut/`, **68 558 lignes = le
+`total_count` de l'API** le 10 novembre 2026 (l'énoncé annonçait 68 563 : la source
+bouge, c'est pourquoi on compare au total *du jour*).
+
+### Étape 5 — La clé
+
+```
+lignes                  : 68558
+identifiants distincts  : 68473
+identifiants en double  : 78 (163 lignes)
+```
+
+**1. C'est la source qui duplique, pas notre partitionnement.** Preuves :
+
+- Les partitions sont **disjointes** par construction : chaque fichier vient d'un
+  `where code_departement="XXX"` différent. Or les **78 identifiants en double ont
+  leurs copies dans le même fichier** (78 / 78). Notre découpage n'a donc rien recopié :
+  l'API renvoie elle-même plusieurs lignes pour un seul filtre.
+- Les copies **ne sont pas identiques** (0 / 78) : ce ne sont pas des pages relues deux
+  fois, mais des fiches différentes. Exemple `0010053C` : le CIO d'Ambérieu-en-Bugey et
+  son antenne de Belley, deux adresses et deux téléphones sous le même UAI.
+- Les **163 lignes en double ont toutes `multi_uai = 1`**, et ce sont les seules
+  (68 395 lignes à 0). La source signale elle-même ces établissements : plusieurs
+  fiches (sites, antennes, fiches ONISEP) partagent un même UAI.
+
+C'est donc un **défaut de donnée**, pas un défaut de code : la somme de nos partitions
+égale le `total_count` de l'API, et aucun doublon ne traverse deux partitions.
+
+**2. La clé pour dédupliquer.** `identifiant_de_l_etablissement` seul n'est pas une clé
+pour ce jeu. La colonne qui diffère dans **toutes** les copies est `fiche_onisep` (78 / 78),
+et le couple **(`identifiant_de_l_etablissement`, `fiche_onisep`)** est unique sur les
+68 558 lignes (vérifié). C'est la clé d'une *ligne*. Si l'on veut une ligne par
+*établissement* (UAI), il ne faut pas supprimer au hasard : il faut choisir une règle
+(par exemple garder la fiche principale) ou agréger les sites — c'est une décision
+métier, à documenter, pas un nettoyage technique.
