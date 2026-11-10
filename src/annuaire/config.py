@@ -35,3 +35,10 @@ NB_ANNEES_AFFICHEES: int = 20
 
 FICHIER_ECHANTILLON: Path = Path("echantillon_annuaire.json")
 FICHIER_EXPORT: Path = Path("export_annuaire.csv")
+FICHIER_CSV: Path = Path("donnees/etablissements.csv")
+FICHIER_PARQUET: Path = Path("donnees/etablissements.parquet")
+
+
+# TP 3 : sans tri, deux appels à l'API ne renvoient pas les mêmes enregistrements.
+TRI_API: str = "identifiant_de_l_etablissement"
+DOSSIER_DONNEES: Path = Path("donnees")

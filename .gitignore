@@ -15,3 +15,5 @@ data/
 
 #Envirenement 
 .env
+donnees/
+donnees_tp4/

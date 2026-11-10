@@ -9,11 +9,14 @@ authors = [
 requires-python = ">=3.12"
 dependencies = [
     "pandas>=3.0.6",
+    "polars>=2.0.0",
+    "pyarrow>=26.0.0",
+    "pydantic>=2.14.1",
     "requests>=2.34.2",
 ]
 
 [project.scripts]
-annuaire-ingest = "annuaire.__main__:main"
+annuaire-ingest = "annuaire.cli:main"
 
 [build-system]
 requires = ["uv_build>=0.12.17,<0.13.0"]
@@ -36,5 +39,5 @@ select = ["E", "F", "I", "UP", "B"]
 strict = true
 
 [[tool.mypy.overrides]]
-module = ["pandas.*"]
+module = ["pandas.*", "pyarrow.*"]
 ignore_missing_imports = true
