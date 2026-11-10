@@ -9,8 +9,8 @@ de façon atomique : relancer l'ingestion reprend là où elle s'était arrêté
 
 import functools
 import json
+import logging
 import random
-import sys
 import time
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -39,6 +39,8 @@ from annuaire.config import (
     TRI_API,
 )
 from annuaire.nettoyage import aplatir_position, dedoublonner
+
+journal = logging.getLogger(__name__)
 
 Enregistrement = dict[str, Any]
 P = ParamSpec("P")
@@ -141,10 +143,14 @@ def reessayer(
                     pause = attente * random.uniform(0.5, 1.5)
                 if tentative == tentatives:
                     break
-                print(
-                    f"  ↻ {fonction.__name__} : tentative {tentative} échouée "
-                    f"({motif}), nouvel essai dans {pause:.2f} s",
-                    file=sys.stderr,
+                journal.warning(
+                    "appel échoué, nouvel essai",
+                    extra={
+                        "fonction": fonction.__name__,
+                        "tentative": tentative,
+                        "motif": motif,
+                        "pause_s": round(pause, 2),
+                    },
                 )
                 time.sleep(pause)
                 attente = min(attente * facteur, plafond)
@@ -347,7 +353,10 @@ def sauvegarder_tout(api: Api, dossier: Path = DOSSIER_BRUT) -> Bilan:
     total = lire_total(api)
     partitions = lire_partitions(api)
     verifier_partitions(partitions, total)
-    print(f"{total} établissements, {len(partitions)} départements")
+    journal.info(
+        "partitions listées",
+        extra={"etablissements": total, "departements": len(partitions)},
+    )
 
     ecrites = sautees = 0
     for code, attendu in sorted(partitions.items(), key=lambda p: str(p[0])):
@@ -357,7 +366,9 @@ def sauvegarder_tout(api: Api, dossier: Path = DOSSIER_BRUT) -> Bilan:
             continue
         ecrire_atomique(lire_partition(api, code, attendu), cible)
         ecrites += 1
-        print(f"  ✓ {cible.name:<22} {attendu:>6} lignes")
+        journal.info(
+            "partition sauvegardée", extra={"fichier": cible.name, "lignes": attendu}
+        )
 
     sur_disque = compter_sur_disque(dossier)
     if sur_disque != total:

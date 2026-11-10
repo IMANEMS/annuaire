@@ -1,2 +1,1 @@
-def main() -> None:
-    print("Hello from annuaire!")
+"""Annuaire des établissements scolaires de l'Éducation nationale."""

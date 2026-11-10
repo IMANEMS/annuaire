@@ -1,0 +1,24 @@
+# PostgreSQL pour le TP, en une commande : `docker compose up -d`
+#
+# Docker est le sujet de la seance 8 : pour aujourd'hui, c'est juste le moyen le plus court
+# d'avoir une base. Le fichier sera relu et explique ligne par ligne a ce moment-la.
+services:
+  base:
+    image: postgres:16-alpine
+    container_name: annuaire-pg
+    environment:
+      POSTGRES_DB: annuaire
+      POSTGRES_USER: annuaire
+      # Mot de passe de developpement local, jamais d'equivalent en production.
+      POSTGRES_PASSWORD: motdepasse_local
+    ports:
+      - "5433:5432"   # 5433 côté Mac : un autre PostgreSQL occupe déjà 5432
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U annuaire -d annuaire"]
+      interval: 5s
+      retries: 10
+
+volumes:
+  pgdata:

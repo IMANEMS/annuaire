@@ -1,6 +1,15 @@
-"""Constantes du projet : toutes les valeurs en dur sont ici."""
+"""Constantes du projet, et (TP 6) les réglages lus dans l'environnement.
+
+Les constantes ci-dessous sont les mêmes pour tout le monde. Ce qui dépend
+d'une machine (URL de la base, mot de passe) est dans `Reglages`, lu dans `.env`.
+"""
 
 from pathlib import Path
+from typing import Literal
+
+from pydantic import Field, PostgresDsn
+from pydantic_settings import BaseSettings, SettingsConfigDict
+from sqlalchemy.engine import make_url
 
 API_URL: str = (
     "https://data.education.gouv.fr/api/explore/v2.1/catalog/datasets/"
@@ -59,3 +68,38 @@ DOSSIER_BRUT: Path = Path("donnees/brut")
 # Export pour la web app : une ligne par établissement (UAI), sans doublon.
 FICHIER_CSV_COMPLET: Path = Path("donnees/etablissements_complet.csv")
 COLONNE_FICHE_ONISEP: str = "fiche_onisep"
+
+
+# --- TP 6 : la configuration hors du code ------------------------------------------
+# Les valeurs propres à une machine (URL, mot de passe...) ne sont jamais écrites
+# ici : elles viennent de l'environnement ou du fichier `.env` (non versionné).
+
+
+class ReglagesJournal(BaseSettings):
+    """Réglages du journal : aucun n'est obligatoire."""
+
+    model_config = SettingsConfigDict(
+        env_prefix="ANNUAIRE_", env_file=".env", extra="ignore"
+    )
+
+    niveau_journal: Literal["DEBUG", "INFO", "WARNING", "ERROR"] = "INFO"
+    journal_json: bool = False
+
+
+class Reglages(ReglagesJournal):
+    """Réglages du chargement en base. Sans `ANNUAIRE_BASE_URL`, refus de démarrer."""
+
+    base_url: PostgresDsn
+    source: Path = Path("donnees/brut")
+    lot: int = Field(default=2_000, ge=1)
+    ecartees: Path = Path("donnees/ecartees.csv")
+
+    @property
+    def url_connexion(self) -> str:
+        """L'URL complète, mot de passe compris : pour se connecter, et rien d'autre."""
+        return str(self.base_url)
+
+    @property
+    def url_journal(self) -> str:
+        """L'URL sans le mot de passe : la seule qui va dans un journal."""
+        return make_url(self.url_connexion).render_as_string(hide_password=True)

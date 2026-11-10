@@ -224,3 +224,98 @@ régénère seul, sans réseau). Une ligne par UAI : pour les 78 UAI à fiches m
 on garde **la fiche la plus complète** (le plus de champs renseignés), puis la première
 selon `fiche_onisep` à égalité — règle déterministe, dans `nettoyage.dedoublonner`.
 La colonne `position` est retirée : elle double `latitude` et `longitude`.
+
+## TP6 — Faire atterrir les données
+
+```bash
+docker compose up -d                        # PostgreSQL (compose.yaml), port 5433
+cp .env.exemple .env                        # puis adapter si besoin
+uv run python -m annuaire --charger         # charger les 107 partitions
+uv run python -m annuaire --charger         # rejouer : 0 ligne écrite
+uv run python -m annuaire --injection       # f-string contre paramètre lié
+```
+
+### Configuration (étape 1)
+
+`config.Reglages` (pydantic-settings) lit les variables `ANNUAIRE_*` dans
+l'environnement ou dans `.env`. `.env` est ignoré par Git
+(`git check-ignore -v .env` → `.gitignore:17:.env`), `.env.exemple` est versionné.
+Sans `ANNUAIRE_BASE_URL`, ou avec un lot qui n'est pas un entier ≥ 1, le pipeline refuse
+de démarrer (`ERROR configuration invalide`, code retour 2). Aucune URL, aucun nom de
+base ni mot de passe dans `src/` (vérifié par un test). Deux propriétés :
+`url_connexion` (pour se connecter) et `url_journal` (mot de passe remplacé par `***`).
+
+### Schéma et clé (étape 2)
+
+Table `etablissement` en SQLAlchemy Core (`src/annuaire/base.py`) : 20 colonnes choisies
+parmi les 71, avec la correspondance explicite `CORRESPONDANCE` (nom en base → nom dans
+la source), plus `charge_le` et `execution`, qui viennent du pipeline.
+
+**Décision sur la clé : `identifiant` (l'UAI) est la clé primaire, une ligne par UAI.**
+
+- `(identifiant, fiche_onisep)` est unique, mais `fiche_onisep` est vide sur 56 758
+  lignes : une clé primaire ne peut pas contenir de `NULL`.
+- Les 78 UAI à fiches multiples (`multi_uai = 1`, 85 lignes de trop) viennent de la
+  source (TP5). Pour chacun, on garde **la fiche la plus complète**
+  (`nettoyage.dedoublonner`), règle déterministe.
+- Rien n'est perdu en silence : les fiches écartées sont écrites dans
+  `donnees/ecartees.csv` et résumées par **une** ligne `WARNING` du journal.
+- Si un même UAI apparaissait dans deux partitions, la seconde transaction écraserait la
+  première : dans ce cas, le chargement **refuse de partir** (`ChargementRefuse`).
+
+### Chargement (étape 3)
+
+`INSERT … ON CONFLICT (identifiant) DO UPDATE … WHERE <une colonne métier IS DISTINCT
+FROM la nouvelle valeur> RETURNING identifiant`.
+
+- **Par lots** de 2 000 lignes, une instruction par lot. PostgreSQL accepte au plus
+  **65 535 paramètres** par instruction : 2 000 × 22 colonnes = 44 000 passent,
+  3 000 × 22 = 66 000 non (lot maximal 2 978). Le pipeline le vérifie avant d'écrire.
+- **Une transaction par partition** (`engine.begin()`) : si le chargement tombe au 059,
+  les partitions précédentes restent validées (testé).
+- **Lignes écrites mesurées** avec `RETURNING`, car `rowcount` vaut -1 avec `ON CONFLICT`.
+  Le `WHERE … IS DISTINCT FROM` fait qu'une ligne inchangée n'est ni réécrite ni
+  comptée ; `IS DISTINCT FROM` plutôt que `<>`, car `NULL <> 'Public'` n'est pas vrai.
+- **Aucun `DELETE`, aucun `TRUNCATE`.**
+
+**Injection** avec `code = "059' OR '1'='1"` :
+
+| Style | Lignes renvoyées |
+|---|---:|
+| f-string dans `sa.text(...)` | **68 473** — toute la table : `OR '1'='1'` est toujours vrai |
+| paramètre lié (`:code`) | **0** — la base cherche le département nommé littéralement `059' OR '1'='1` |
+
+(Pour comparaison, `code = "059"` renvoie 2 492 lignes.)
+
+### Journal (étape 4)
+
+Plus aucun `print` dans `src/` (vérifié par un test). `src/annuaire/journal.py` :
+identifiant d'exécution posé par un `logging.Filter` sur chaque ligne (et écrit dans la
+colonne `execution`), contexte dans `extra={...}`, une ligne par partition, niveaux
+DEBUG / INFO / WARNING / ERROR, `sqlalchemy.engine` et `httpx` à WARNING, mode JSON avec
+`ANNUAIRE_JOURNAL_JSON=true`. L'URL n'apparaît que sous sa forme masquée.
+
+### Rejouer (étape 5)
+
+Mesuré sur PostgreSQL 16 (Docker), le 10 novembre 2026, sur les 68 558 lignes réelles :
+
+| Passage | Exécution | Lues | Écartées | **Écrites** | En base | Empreinte SHA-256 |
+|---|---|---:|---:|---:|---:|---|
+| 1 | `0d5300e8` | 68 558 | 85 | 68 473 | 68 473 | `3425ee4ba639625f…` |
+| 2 | `4db475ec` | 68 558 | 85 | **0** | 68 473 | `3425ee4ba639625f…` |
+
+**Oui, la base est identique après le second chargement**, cellule par cellule,
+`charge_le` et `execution` compris : le second passage n'a modifié aucune ligne, car
+aucune valeur métier n'avait changé. Vérifié par :
+
+- le nombre de lignes écrites, mesuré par `RETURNING` : 0 ;
+- l'empreinte de toute la table, triée par identifiant (`base.empreinte`), identique
+  avant et après ; en SQL :
+  ```sql
+  SELECT count(*), md5(string_agg(e::text, '|' ORDER BY identifiant)) FROM etablissement e;
+  ```
+- `SELECT DISTINCT execution FROM etablissement;` ne renvoie que `0d5300e8`, l'identifiant
+  du premier passage : aucune ligne ne porte celui du second.
+
+> Note : la base Docker écoute sur le port **5433** du Mac (`compose.yaml`), car un autre
+> PostgreSQL occupait déjà 5432 sur la machine de développement.
