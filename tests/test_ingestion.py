@@ -244,5 +244,33 @@ class RelectureEtCleTests(SansDormir):
         self.assertEqual(resultat.doublons_meme_partition, 1)
 
 
+class ExportCsvTests(SansDormir):
+    def test_dedoublonner_garde_la_fiche_la_plus_complete(self) -> None:
+        from annuaire.nettoyage import dedoublonner
+
+        df = pd.DataFrame(
+            {
+                "identifiant_de_l_etablissement": ["A", "A", "B"],
+                "fiche_onisep": ["ENS.2", "ENS.1", None],
+                "telephone": ["01", None, "02"],
+            }
+        )
+        resultat = dedoublonner(df)
+        self.assertEqual(list(resultat["identifiant_de_l_etablissement"]), ["A", "B"])
+        self.assertEqual(resultat.iloc[0]["telephone"], "01")  # la plus complète
+
+    def test_csv_sans_doublon(self) -> None:
+        base = fausse_base()
+        base.append(dict(base[0], telephone="01 02"))  # la source duplique un UAI
+        with tempfile.TemporaryDirectory() as tmp:
+            dossier, cible = Path(tmp) / "brut", Path(tmp) / "complet.csv"
+            ingerer(api_simulee(FausseApi(base)), dossier)
+            lues, ecrites = ingestion.exporter_csv(dossier, cible)
+            csv = pd.read_csv(cible, dtype=str)
+            self.assertEqual((lues, ecrites, len(csv)), (253, 252, 252))
+            self.assertFalse(csv["identifiant_de_l_etablissement"].duplicated().any())
+            self.assertFalse(cible.with_name(cible.name + ".partiel").exists())
+
+
 if __name__ == "__main__":
     unittest.main()

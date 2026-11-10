@@ -26,16 +26,19 @@ from annuaire.config import (
     ATTENTE_INITIALE,
     ATTENTE_MAX,
     CODES_REESSAYABLES,
+    COLONNE_IDENTIFIANT,
     COLONNE_PARTITION,
     DEBIT_PAR_SECONDE,
     DOSSIER_BRUT,
     FACTEUR_ATTENTE,
+    FICHIER_CSV_COMPLET,
     PLAFOND_API,
     TAILLE_PAGE,
     TENTATIVES,
     TIMEOUT_SECONDES,
     TRI_API,
 )
+from annuaire.nettoyage import aplatir_position, dedoublonner
 
 Enregistrement = dict[str, Any]
 P = ParamSpec("P")
@@ -363,3 +366,29 @@ def sauvegarder_tout(api: Api, dossier: Path = DOSSIER_BRUT) -> Bilan:
             "(un fichier d'une exécution précédente est-il périmé ?)"
         )
     return Bilan(total, len(partitions), ecrites, sautees, sur_disque)
+
+
+# --- Export CSV pour la web app ---------------------------------------------------
+
+
+def exporter_csv(
+    dossier: Path = DOSSIER_BRUT, cible: Path = FICHIER_CSV_COMPLET
+) -> tuple[int, int]:
+    """Rassemble les partitions en un CSV sans doublon d'UAI, écrit atomiquement.
+
+    Renvoie (lignes lues, lignes écrites).
+    """
+    fichiers = sorted(dossier.glob("dep=*.parquet"))
+    if not fichiers:
+        raise FileNotFoundError(
+            f"aucune partition dans {dossier}/ : lancez --sauvegarder"
+        )
+    tout = pd.concat([pd.read_parquet(f) for f in fichiers], ignore_index=True)
+    propre = dedoublonner(aplatir_position(tout))
+    if propre[COLONNE_IDENTIFIANT].duplicated().any():
+        raise IngestionIncomplete("des doublons d'UAI subsistent après dédoublonnage")
+    cible.parent.mkdir(parents=True, exist_ok=True)
+    provisoire = cible.with_name(cible.name + ".partiel")
+    propre.to_csv(provisoire, index=False, encoding="utf-8")
+    provisoire.replace(cible)
+    return len(tout), len(propre)

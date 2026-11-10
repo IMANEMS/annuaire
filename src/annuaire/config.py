@@ -56,3 +56,6 @@ CODES_REESSAYABLES: frozenset[int] = frozenset({408, 425, 429, 500, 502, 503, 50
 COLONNE_PARTITION: str = "code_departement"
 COLONNE_IDENTIFIANT: str = "identifiant_de_l_etablissement"
 DOSSIER_BRUT: Path = Path("donnees/brut")
+# Export pour la web app : une ligne par établissement (UAI), sans doublon.
+FICHIER_CSV_COMPLET: Path = Path("donnees/etablissements_complet.csv")
+COLONNE_FICHE_ONISEP: str = "fiche_onisep"

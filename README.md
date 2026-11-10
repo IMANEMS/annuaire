@@ -147,6 +147,8 @@ récupérés par pages de 100.
 uv run python -m annuaire --mur             # étape 1 : mesurer le plafond
 uv run python -m annuaire --sauvegarder     # étapes 2 à 4 : tout sauvegarder
 uv run python -m annuaire --cle             # étape 5 : la question de la clé
+uv run python -m annuaire --csv             # CSV sans doublon pour la web app
+uv run streamlit run app.py                 # la web app
 uv run python -m annuaire --source partitions   # analyser les 68 563
 ```
 
@@ -214,3 +216,11 @@ et le couple **(`identifiant_de_l_etablissement`, `fiche_onisep`)** est unique s
 *établissement* (UAI), il ne faut pas supprimer au hasard : il faut choisir une règle
 (par exemple garder la fiche principale) ou agréger les sites — c'est une décision
 métier, à documenter, pas un nettoyage technique.
+
+### Export CSV sans doublon (web app)
+
+`--sauvegarder` écrit, à la fin, `donnees/etablissements_complet.csv` (`--csv` le
+régénère seul, sans réseau). Une ligne par UAI : pour les 78 UAI à fiches multiples,
+on garde **la fiche la plus complète** (le plus de champs renseignés), puis la première
+selon `fiche_onisep` à égalité — règle déterministe, dans `nettoyage.dedoublonner`.
+La colonne `position` est retirée : elle double `latitude` et `longitude`.

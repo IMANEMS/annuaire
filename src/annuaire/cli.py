@@ -10,6 +10,7 @@ from annuaire.analyse import ResultatAnalyse, ResultatCle, analyser, analyser_cl
 from annuaire.config import (
     DOSSIER_BRUT,
     FICHIER_CSV,
+    FICHIER_CSV_COMPLET,
     FICHIER_EXPORT,
     FICHIER_PARQUET,
     NB_ANNEES_AFFICHEES,
@@ -17,7 +18,7 @@ from annuaire.config import (
     NB_ENREGISTREMENTS_MAX,
     TAILLE_PAGE,
 )
-from annuaire.ingestion import Api, sauvegarder_tout, trouver_mur
+from annuaire.ingestion import Api, exporter_csv, sauvegarder_tout, trouver_mur
 from annuaire.lecture import (
     Lecteur,
     LecteurApi,
@@ -67,6 +68,11 @@ def lire_arguments(arguments: Sequence[str] | None = None) -> argparse.Namespace
         "--sauvegarder",
         action="store_true",
         help=f"TP 5 · étapes 2 à 4 : sauvegarder toute l'API dans {DOSSIER_BRUT}/",
+    )
+    action.add_argument(
+        "--csv",
+        action="store_true",
+        help=f"exporter les partitions en un CSV sans doublon ({FICHIER_CSV_COMPLET})",
     )
     action.add_argument(
         "--cle",
@@ -139,8 +145,20 @@ def afficher_cle(resultat: ResultatCle) -> None:
     print(f"\nexemple :\n{resultat.exemple}")
 
 
+def exporter(options: argparse.Namespace) -> None:
+    """Écrit le CSV de la web app, une ligne par UAI."""
+    lues, ecrites = exporter_csv(DOSSIER_BRUT, FICHIER_CSV_COMPLET)
+    print(
+        f"CSV : {FICHIER_CSV_COMPLET} · {ecrites} établissements "
+        f"({lues - ecrites} doublons d'UAI retirés sur {lues} lignes)"
+    )
+
+
 def executer_tp5(options: argparse.Namespace) -> None:
-    """Les trois actions du TP 5."""
+    """Les actions du TP 5."""
+    if options.csv:
+        exporter(options)
+        return
     if options.cle:
         afficher_cle(analyser_cle(charger_partitions(DOSSIER_BRUT)))
         return
@@ -160,6 +178,7 @@ def executer_tp5(options: argparse.Namespace) -> None:
                 f"{bilan.lignes_sur_disque} lignes sur disque = "
                 f"{bilan.total_api} attendues ✅"
             )
+            exporter(options)
     finally:
         api.fermer()
 
@@ -167,7 +186,7 @@ def executer_tp5(options: argparse.Namespace) -> None:
 def main(arguments: Sequence[str] | None = None) -> None:
     """Lance l'action demandée : par défaut, l'analyse et l'export des ouverts."""
     options = lire_arguments(arguments)
-    if options.mur or options.sauvegarder or options.cle:
+    if options.mur or options.sauvegarder or options.csv or options.cle:
         executer_tp5(options)
         return
 
